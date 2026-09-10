@@ -33,10 +33,10 @@ scripted deploy, or to pin the encryption key, see `.env.example`.
 
 Provider credentials and probe tokens are encrypted in the database with a
 single key. If you don't supply one, the server generates it on first boot,
-prints it to the container log, and writes it to the `alfred-data` volume at
-`/data/alfred-master.key`. Copy it somewhere safe. Those secrets can't be read
-back without it if the volume is lost. An admin can also reveal the current key
-from Settings.
+prints it to the container log, and stores it in the database. Copy it somewhere
+safe. To keep the key out of the database, set it as `ALFRED_MASTER_KEY` in the
+environment (64 hex characters, `openssl rand -hex 32`). An admin can also
+reveal the current key from Settings.
 
 ### TLS
 
@@ -138,7 +138,7 @@ You need Postgres running somewhere. TimescaleDB is optional; the schema falls
 back to plain Postgres when the extension is missing.
 
 ```
-cd backend  && npm install && DATABASE_URL=postgres://localhost/alfred ALFRED_KEY_FILE=./data/master.key npm run dev
+cd backend  && npm install && DATABASE_URL=postgres://localhost/alfred npm run dev
 cd frontend && npm install && npm run dev
 ```
 

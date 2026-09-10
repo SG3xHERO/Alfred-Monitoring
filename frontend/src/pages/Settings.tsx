@@ -104,14 +104,14 @@ function SystemPanel() {
 
 /** Encryption key for DB-stored secrets: shows where it came from, and reveals it on demand for disaster recovery. */
 function EncryptionKeyPanel() {
-  const [status, setStatus] = useState<{ source: string; file: string } | null>(null);
+  const [status, setStatus] = useState<{ source: string } | null>(null);
   const [key, setKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    get<{ source: string; file: string }>("/api/settings/master-key").then(setStatus).catch(() => {});
+    get<{ source: string }>("/api/settings/master-key").then(setStatus).catch(() => {});
   }, []);
 
   const reveal = async () => {
@@ -132,18 +132,17 @@ function EncryptionKeyPanel() {
   const sourceLabel = status?.source === "env"
     ? "supplied via the ALFRED_MASTER_KEY environment variable"
     : status?.source === "generated"
-      ? "auto-generated on this boot"
-      : "loaded from the key file";
+      ? "generated on first boot and stored in the database"
+      : "stored in the database";
 
   return (
     <Panel title="Encryption key">
       <div className="p-3 text-[12px] text-ink-3">
         <p className="mb-2">
           Secrets stored in the database (email provider credentials, probe tokens) are encrypted
-          with a single master key, {status ? sourceLabel : "…"}
-          {status?.source !== "env" && status ? <> and persisted at <span className="font-mono">{status.file}</span></> : null}.
-          Keep a copy somewhere safe — without it, those secrets can't be recovered if the data
-          volume is lost.
+          with a single master key, {status ? sourceLabel : "…"}. Keep a copy somewhere safe. Set it
+          as <span className="font-mono">ALFRED_MASTER_KEY</span> in the environment to hold it
+          outside the database.
         </p>
         {error && <div className="mb-2 text-crit">{error}</div>}
         {key ? (

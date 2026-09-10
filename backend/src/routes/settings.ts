@@ -5,7 +5,7 @@ import { audit } from "../audit.js";
 import { getSetting, setSetting, settingsForUi, SETTINGS_REGISTRY } from "../settings.js";
 import { applyRetention } from "../db.js";
 import { sendMail } from "../notify/email.js";
-import { masterKeyHex, masterKeyWasGenerated, masterKeyFile } from "../crypto.js";
+import { masterKeyHex, masterKeySource } from "../crypto.js";
 
 /** Domains mail may be sent from. Configurable (comma list); empty = any domain allowed. */
 function allowedEmailDomains(): string[] {
@@ -122,15 +122,10 @@ export async function settingsRoutes(app: FastifyInstance) {
     return rows;
   });
 
-  // Non-secret status of the encryption key: where it came from and where it
-  // lives on disk. The value itself is only served by the reveal route below.
+  // Non-secret status of the encryption key: where it came from. The value
+  // itself is only served by the reveal route below.
   app.get("/api/settings/master-key", { preHandler: requireAdmin }, async () => {
-    const source = process.env.ALFRED_MASTER_KEY
-      ? "env"
-      : masterKeyWasGenerated()
-        ? "generated"
-        : "file";
-    return { source, file: masterKeyFile() };
+    return { source: masterKeySource() };
   });
 
   // Reveals the active encryption key for disaster recovery (e.g. the data

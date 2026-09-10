@@ -3,7 +3,7 @@ import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 
 import { initDb, applyRetention } from "./db.js";
-import { requireMasterKey } from "./crypto.js";
+import { resolveMasterKey } from "./crypto.js";
 import { initSettings, getSettingNumber } from "./settings.js";
 import { runMigrations } from "./migrations.js";
 import { seedAdmin } from "./auth.js";
@@ -43,8 +43,8 @@ const app = Fastify({
 });
 
 async function main() {
-  requireMasterKey(); // fail fast with a clear message, not on first secret use
   await initDb();
+  await resolveMasterKey(); // env var, or the stored key, or generate one — needs the DB
   await initSettings();
   await applyRetention(getSettingNumber("retention.metrics_days"));
   await runMigrations();

@@ -457,6 +457,16 @@ CREATE TABLE IF NOT EXISTS brands (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Instance-level secrets that can't themselves be encrypted at rest because
+-- they're needed before decryption is possible. Currently just the master
+-- key used to encrypt everything else (see crypto.ts), stored here on first
+-- boot unless ALFRED_MASTER_KEY is supplied via the environment.
+CREATE TABLE IF NOT EXISTS instance_secrets (
+  key        text PRIMARY KEY,
+  value      text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 `;
 
 export const TIMESCALE_SCHEMA = [

@@ -1,19 +1,18 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
+import { query } from "./db.js";
 
 /**
  * Encryption-at-rest for secrets stored in the database (email provider
  * credentials, probe variables, probe auth tokens). Everything derives from
- * one master key — the single secret a deploy must keep; all other
- * configuration lives in the DB and is editable in Settings.
+ * one master key, resolved once at boot in this order:
  *
- * The key is resolved once at boot, in order:
- *   1. ALFRED_MASTER_KEY env var (64 hex chars) — for scripted/IaC deploys.
- *   2. The key file (ALFRED_KEY_FILE, default /data/alfred-master.key) if it
- *      exists — where a previously auto-generated key was persisted.
- *   3. Otherwise a fresh key is generated, written to that file, and printed
- *      to the logs once so the operator can record it.
+ *   1. ALFRED_MASTER_KEY env var (64 hex chars). Keeps the key outside the
+ *      database, which is the stronger option for production.
+ *   2. The instance_secrets row, if an earlier boot generated and stored one.
+ *   3. A fresh key, generated, stored in instance_secrets, and printed once.
+ *
+ * resolveMasterKey() must run after initDb(). After that, encryptSecret /
+ * decryptSecret / jwtSecret use the cached key synchronously.
  *
  * Stored format: "enc:v1:" + base64(IV(12) ‖ GCM tag(16) ‖ ciphertext).
  * The versioned prefix makes migrations idempotent (plaintext values are
@@ -21,94 +20,84 @@ import path from "node:path";
  */
 
 const PREFIX = "enc:v1:";
+const DB_KEY_NAME = "master_key";
 
 let cachedKey: Buffer | null = null;
 let cachedKeyHex: string | null = null;
-let keyWasGenerated = false;
+let keySource: "env" | "database" | "generated" = "generated";
 
-function keyFilePath(): string {
-  return process.env.ALFRED_KEY_FILE || "/data/alfred-master.key";
+const isValidKey = (hex: string): boolean => /^[0-9a-fA-F]{64}$/.test(hex);
+
+function setKey(hex: string, source: "env" | "database" | "generated"): void {
+  cachedKeyHex = hex;
+  cachedKey = Buffer.from(hex, "hex");
+  keySource = source;
 }
 
-/** Resolves the master key (env → key file → generate). Call once at boot. */
-export function requireMasterKey(): Buffer {
-  if (cachedKey) return cachedKey;
+export async function resolveMasterKey(): Promise<void> {
+  if (cachedKey) return;
 
   const fromEnv = (process.env.ALFRED_MASTER_KEY || "").trim();
   if (fromEnv) {
-    if (!/^[0-9a-fA-F]{64}$/.test(fromEnv)) {
+    if (!isValidKey(fromEnv)) {
       console.error(
         "ALFRED_MASTER_KEY is set but invalid. It must be 64 hex characters (32 bytes).\n" +
-        "Generate one with:  openssl rand -hex 32\n" +
-        "Or leave it unset and Alfred will generate and persist one for you.",
+        "Generate one with:  openssl rand -hex 32",
       );
       process.exit(1);
     }
-    return setKey(fromEnv, false);
+    setKey(fromEnv, "env");
+    return;
   }
 
-  const file = keyFilePath();
-  try {
-    if (fs.existsSync(file)) {
-      const onDisk = fs.readFileSync(file, "utf8").trim();
-      if (/^[0-9a-fA-F]{64}$/.test(onDisk)) return setKey(onDisk, false);
-      console.error(`key file ${file} exists but does not contain a valid 64-hex key — refusing to overwrite it`);
-      process.exit(1);
-    }
-  } catch (err: any) {
-    console.error(`could not read key file ${file}: ${err.message}`);
-    process.exit(1);
+  const { rows } = await query(`SELECT value FROM instance_secrets WHERE key = $1`, [DB_KEY_NAME]);
+  if (rows.length > 0 && isValidKey(rows[0].value)) {
+    setKey(rows[0].value, "database");
+    return;
   }
 
-  // Generate, persist, and announce.
   const generated = crypto.randomBytes(32).toString("hex");
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, generated + "\n", { mode: 0o600 });
-  } catch (err: any) {
-    console.error(
-      `no ALFRED_MASTER_KEY set and could not write a generated one to ${file}: ${err.message}\n` +
-      "Set ALFRED_MASTER_KEY in the environment, or mount a writable volume at that path.",
-    );
-    process.exit(1);
-  }
-  keyWasGenerated = true;
-  const rule = "=".repeat(72);
-  console.log(
-    `\n${rule}\n` +
-    "  Alfred generated a new encryption key for secrets stored in the DB.\n" +
-    `  Saved to: ${file}\n\n` +
-    `  ALFRED_MASTER_KEY=${generated}\n\n` +
-    "  Record this now. Without it, secrets in the database (email provider\n" +
-    "  credentials, probe tokens) cannot be decrypted if the volume is lost.\n" +
-    "  An admin can also reveal it later under Settings → System.\n" +
-    `${rule}\n`,
+  await query(
+    `INSERT INTO instance_secrets (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+    [DB_KEY_NAME, generated],
   );
-  return setKey(generated, true);
+  // Re-read: a concurrent boot may have won the insert.
+  const { rows: after } = await query(`SELECT value FROM instance_secrets WHERE key = $1`, [DB_KEY_NAME]);
+  const key = after[0]?.value && isValidKey(after[0].value) ? after[0].value : generated;
+  setKey(key, key === generated ? "generated" : "database");
+
+  if (keySource === "generated") {
+    const rule = "=".repeat(72);
+    console.log(
+      `\n${rule}\n` +
+      "  Alfred generated an encryption key for secrets stored in the database\n" +
+      "  and saved it there. Record it now:\n\n" +
+      `  ALFRED_MASTER_KEY=${key}\n\n` +
+      "  Set that as an environment variable to keep the key outside the\n" +
+      "  database (recommended for production). An admin can also reveal it\n" +
+      "  later under Settings.\n" +
+      `${rule}\n`,
+    );
+  }
 }
 
-function setKey(hex: string, generated: boolean): Buffer {
-  cachedKeyHex = hex;
-  cachedKey = Buffer.from(hex, "hex");
-  keyWasGenerated = generated || keyWasGenerated;
+/** The resolved key. Throws if resolveMasterKey() has not run yet. */
+export function requireMasterKey(): Buffer {
+  if (!cachedKey) {
+    throw new Error("master key not resolved — resolveMasterKey() must run at boot before any secret is used");
+  }
   return cachedKey;
 }
 
 /** The active master key as hex — for the admin-only reveal endpoint. */
 export function masterKeyHex(): string {
-  requireMasterKey();
-  return cachedKeyHex!;
+  if (!cachedKeyHex) throw new Error("master key not resolved");
+  return cachedKeyHex;
 }
 
-/** Whether the active key was auto-generated this run (vs supplied via env / key file). */
-export function masterKeyWasGenerated(): boolean {
-  requireMasterKey();
-  return keyWasGenerated;
-}
-
-/** Where the key is (or would be) persisted on disk. */
-export function masterKeyFile(): string {
-  return keyFilePath();
+/** Where the active key came from. */
+export function masterKeySource(): "env" | "database" | "generated" {
+  return keySource;
 }
 
 export function isEncrypted(value: string): boolean {
@@ -137,11 +126,10 @@ export function decryptSecret(stored: string): string {
 }
 
 /**
- * Session-signing secret. JWT_SECRET (if set) stays authoritative so
- * existing deploys keep their sessions; otherwise derive a stable key from
- * the master key — a fresh install needs only a database.
- * Kept separate from the encryption key (HKDF with its own info string) so
- * rotating sessions and re-encrypting secrets remain independent operations.
+ * Session-signing secret. JWT_SECRET (if set) stays authoritative so existing
+ * deploys keep their sessions; otherwise derive a stable key from the master
+ * key. Kept separate from the encryption key (HKDF with its own info string)
+ * so rotating sessions and re-encrypting secrets stay independent.
  */
 export function jwtSecret(): string {
   const env = process.env.JWT_SECRET;

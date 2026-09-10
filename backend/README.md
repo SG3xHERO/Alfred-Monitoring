@@ -25,8 +25,7 @@ app and stored in the DB. These are the only variables that matter:
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgres://alfred@localhost:5432/alfred` | |
-| `ALFRED_MASTER_KEY` | generated on first boot | 64 hex chars. Encrypts secrets at rest. |
-| `ALFRED_KEY_FILE` | `/data/alfred-master.key` | Where a generated key is written and read back. |
+| `ALFRED_MASTER_KEY` | generated on first boot, stored in the DB | 64 hex chars. Encrypts secrets at rest. Set it to keep the key out of the database. |
 | `JWT_SECRET` | derived from the master key | Set only to rotate the master key independently. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | unset | Set both to create the admin account without the wizard. |
 | `PORT` | `8080` | |
