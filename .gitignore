@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+agent/bin/
+backend/.env
+frontend/.env
+*.exe
+
+# local build/dev
+.alfred-master.key

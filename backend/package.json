@@ -1,0 +1,35 @@
+{
+  "name": "alfred-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/rate-limit": "^10.2.2",
+    "@marsaud/smb2": "^0.18.0",
+    "bcryptjs": "^2.4.3",
+    "fastify": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.2.2",
+    "mssql": "^12.7.0",
+    "nodemailer": "^9.0.3",
+    "pg": "^8.13.1",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^22.10.5",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

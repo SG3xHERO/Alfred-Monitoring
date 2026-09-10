@@ -1,0 +1,78 @@
+# Alfred monitoring stack — Portainer-ready.
+# Point Portainer at this repo (Stacks → Add stack → Repository) or run:
+#   docker compose up -d --build
+#
+# No configuration is required to start. Everything (admin account, org name,
+# email, alert tuning, groups, optional Microsoft SSO) is set up in the browser
+# on first launch and stored in the database. See .env.example for the few
+# optional overrides.
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: alfred
+      POSTGRES_USER: alfred
+      # Postgres is only reachable on the internal compose network and is not
+      # published, so trust auth is a safe default and keeps the stack
+      # zero-config. Set POSTGRES_PASSWORD in .env (and add a "ports:" mapping)
+      # only if you deliberately expose it.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
+    volumes:
+      - alfred-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alfred -d alfred"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # Monitored probes' Ping check type shells out to the system ping binary,
+    # which needs raw-socket access. The container also needs actual network
+    # reachability (LAN/VPN) to whatever IPs/UNC shares/SQL hosts your probes
+    # target — the default bridge network may not be enough depending on
+    # where those hosts live relative to the Docker host.
+    cap_add:
+      - NET_RAW
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://alfred:${POSTGRES_PASSWORD:-}@db:5432/alfred
+      # Encryption key for secrets stored in the DB. Leave unset and the
+      # backend generates one on first boot, logs it, and persists it to the
+      # alfred-data volume below. Set it explicitly for scripted deploys.
+      ALFRED_MASTER_KEY: ${ALFRED_MASTER_KEY:-}
+      ALFRED_KEY_FILE: /data/alfred-master.key
+      # Optional: only set JWT_SECRET if you need sessions to survive a
+      # master-key rotation independently — otherwise it derives from the
+      # master key automatically.
+      JWT_SECRET: ${JWT_SECRET:-}
+      # Optional: set both to skip the first-run setup wizard (e.g. scripted/
+      # IaC deploys). Leave unset to be walked through setup in the browser.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # agent releases are fetched live from the frontend container (which
+      # cross-compiles the agent on every image build) — "frontend" resolves
+      # via Docker's default compose network, no volume/publish step needed.
+      # AGENT_STATIC_URL: http://frontend
+    volumes:
+      - alfred-data:/data
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${ALFRED_PORT:-8420}:80"
+
+volumes:
+  alfred-db:
+  alfred-data:

@@ -1,0 +1,54 @@
+# Alfred agent configuration
+# Linux default path:   /etc/alfred-agent/config.yaml
+# Windows default path: C:\ProgramData\AlfredAgent\config.yaml
+
+# Base URL of the Alfred backend (the same origin the dashboard is served from).
+backend_url: https://alfred.example.com
+
+# Per-agent API key — generate one in the dashboard via "Add server".
+api_key: CHANGE_ME
+
+# Optional hostname override. Defaults to the machine hostname.
+hostname: ""
+
+# How often to push a heartbeat + metrics (seconds). Minimum 5.
+interval_seconds: 15
+
+# Accept a self-signed backend certificate (prefer a real cert instead).
+insecure_skip_verify: false
+
+checks:
+  # Watched services: systemd unit names on Linux, Windows service names on Windows.
+  services: []
+  #  - nginx
+  #  - MSSQLSERVER
+
+  # Watched processes by executable name (".exe" optional on Windows).
+  processes: []
+  #  - myapp
+
+  # Windows only: how often to query Critical/Error events from System + Application.
+  eventlog_interval_seconds: 300
+
+  # Linux only: how often to count pending apt updates.
+  updates_interval_seconds: 3600
+
+  # Linux only: SMART health via smartctl, if installed.
+  smart_enabled: false
+  smart_interval_seconds: 1800
+
+  # Windows only: watch the Security log for account lockouts (event 4740)
+  # and report them every poll (interval_seconds), not on the slower
+  # eventlog cadence above. The agent's service account needs Security-log
+  # read rights (Event Log Readers group) for this to return anything.
+  lockout_monitoring: false
+
+  # Windows only: gates the SQL diagnostic snapshot capture (device page's
+  # "Snapshot now" and a rule's capture: sql_snapshot) so it's never
+  # attempted against a box that isn't running SQL Server.
+  sql_monitoring: false
+
+  # Windows only: whether the device page's signed-in-users panel applies
+  # to this box. These are usually set from the app's Add Server / Edit
+  # panels rather than by hand — they can also be pushed remotely.
+  signed_in_users_panel: false

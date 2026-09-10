@@ -1,0 +1,4 @@
+# Ensure shell scripts always have LF line endings, even when checked out on
+# Windows with core.autocrlf=true. CRLF in a script served straight into
+# `sh` (see deploy/install-agent-linux.sh, piped via curl) breaks it.
+*.sh text eol=lf
