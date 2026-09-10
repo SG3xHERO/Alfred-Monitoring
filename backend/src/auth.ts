@@ -20,7 +20,13 @@ export function verifySession(token: string): string | null {
   }
 }
 
-/** preHandler guard for all authenticated routes (admin and viewer alike). */
+/**
+ * preHandler guard for all authenticated routes (admin and viewer alike).
+ * Also confirms the account still exists and stashes its current role on the
+ * request, so a validly-signed cookie for a user that was deleted — or a
+ * stale cookie carried over from an earlier deployment that happened to share
+ * the signing key — does not grant access.
+ */
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
   const token = req.cookies[COOKIE_NAME];
   const user = token ? verifySession(token) : null;
@@ -28,7 +34,14 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
     reply.code(401).send({ error: "unauthorized" });
     return reply;
   }
+  const { rows } = await query(`SELECT role FROM users WHERE username = $1`, [user]);
+  if (rows.length === 0) {
+    reply.clearCookie(COOKIE_NAME, { path: "/" });
+    reply.code(401).send({ error: "unauthorized" });
+    return reply;
+  }
   (req as any).user = user;
+  (req as any).userRole = rows[0].role as string;
 }
 
 /**
@@ -39,8 +52,7 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
 export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
   const denied = await requireAuth(req, reply);
   if (denied) return denied;
-  const { rows } = await query(`SELECT role FROM users WHERE username = $1`, [(req as any).user]);
-  if (rows.length === 0 || rows[0].role !== "admin") {
+  if ((req as any).userRole !== "admin") {
     reply.code(403).send({ error: "admin role required" });
     return reply;
   }
@@ -54,8 +66,8 @@ export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
 export async function requireOperator(req: FastifyRequest, reply: FastifyReply) {
   const denied = await requireAuth(req, reply);
   if (denied) return denied;
-  const { rows } = await query(`SELECT role FROM users WHERE username = $1`, [(req as any).user]);
-  if (rows.length === 0 || (rows[0].role !== "admin" && rows[0].role !== "operator")) {
+  const role = (req as any).userRole;
+  if (role !== "admin" && role !== "operator") {
     reply.code(403).send({ error: "operator or admin role required" });
     return reply;
   }

@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
 import { Routes, Route, NavLink, Navigate, useNavigate } from "react-router-dom";
-import { post } from "./api";
+import { get, post } from "./api";
 import { MeProvider, useMe } from "./useMe";
 import { useTheme } from "./useTheme";
 import Login from "./pages/Login";
@@ -23,11 +24,43 @@ import AdminHome from "./pages/AdminHome";
 import Wall from "./pages/Wall";
 import WallDesigner from "./pages/WallDesigner";
 
+/**
+ * Blocks the app shell until we know there's a valid session. No session →
+ * send the browser to the first-run wizard if no admin exists yet, otherwise
+ * to the login page. Without this, an unauthenticated visit renders the
+ * dashboard frame and only bounces once some data fetch happens to 401.
+ */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    get("/api/auth/me")
+      .then(() => { if (!cancelled) setReady(true); })
+      .catch(async () => {
+        if (cancelled) return;
+        let needsSetup = false;
+        try {
+          const s = await get<{ needed: boolean }>("/api/setup/status");
+          needsSetup = s.needed;
+        } catch { /* fall through to /login */ }
+        navigate(needsSetup ? "/setup" : "/login", { replace: true });
+      });
+    return () => { cancelled = true; };
+  }, [navigate]);
+
+  if (!ready) return null;
+  return <>{children}</>;
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <MeProvider>
-      <ShellInner>{children}</ShellInner>
-    </MeProvider>
+    <AuthGate>
+      <MeProvider>
+        <ShellInner>{children}</ShellInner>
+      </MeProvider>
+    </AuthGate>
   );
 }
 
